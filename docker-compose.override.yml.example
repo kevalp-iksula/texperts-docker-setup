@@ -1,0 +1,83 @@
+################################################################################
+# Local overrides - OPTIONAL
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Compose merges docker-compose.override.yml automatically when present.
+# It is gitignored, so this is the place for machine-specific tweaks that
+# should not be shared with the rest of the team.
+#
+# Everything below is commented out. Uncomment only what you need.
+################################################################################
+
+services:
+
+  ##############################################################################
+  # Example: cap resources so the stack cannot starve the rest of your machine.
+  ##############################################################################
+  # php:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '4.0'
+  #         memory: 3G
+
+  # opensearch:
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 2G
+
+  ##############################################################################
+  # Example: expose PHP-FPM on the host to profile it directly.
+  # Off by default — nothing outside the Docker network needs to reach FPM.
+  ##############################################################################
+  # php:
+  #   ports:
+  #     - "9000:9000"
+
+  ##############################################################################
+  # Example: MailHog, to catch outbound mail instead of sending it.
+  # Magento config: SMTP host 'mailhog', port 1025. UI at http://localhost:8025
+  ##############################################################################
+  # mailhog:
+  #   image: mailhog/mailhog:latest
+  #   container_name: ac-mailhog-249
+  #   networks:
+  #     ac-249-network:
+  #   ports:
+  #     - "8025:8025"
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: 10m
+
+  ##############################################################################
+  # Example: RabbitMQ, for async/bulk operations and message queues.
+  # Adds roughly 400MB. Magento runs fine without it in development.
+  ##############################################################################
+  # rabbitmq:
+  #   image: rabbitmq:3.13-management-alpine
+  #   container_name: ac-rabbitmq-249
+  #   networks:
+  #     ac-249-network:
+  #   environment:
+  #     RABBITMQ_DEFAULT_USER: magento
+  #     RABBITMQ_DEFAULT_PASS: magento
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   volumes:
+  #     - rabbitmq-data:/var/lib/rabbitmq
+
+  ##############################################################################
+  # Example: keep the OpenSearch container but stop it eating RAM while you
+  # work on something unrelated.
+  ##############################################################################
+  # opensearch:
+  #   environment:
+  #     - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+
+# volumes:
+#   rabbitmq-data:
+#     name: ac-249-rabbitmq-data

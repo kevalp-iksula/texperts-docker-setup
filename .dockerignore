@@ -1,0 +1,23 @@
+# Keep the build context small and free of secrets. Anything sent to the
+# daemon can end up in an image layer.
+
+.env
+.env.*
+!.env.example
+scripts/.composer-auth.json
+auth.json
+
+volumes/
+docs/
+_backup_*/
+*.md
+!php/README.md
+
+.git/
+.gitignore
+.idea/
+.vscode/
+*.log
+*.sql
+*.sql.gz
+*.zip

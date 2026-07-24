@@ -1,0 +1,236 @@
+################################################################################
+# Adobe Commerce dev stack — version-switchable for the 2.4.7 -> 2.4.9 upgrade
+#
+#   Profile 247 (baseline): PHP 8.3 | MariaDB 10.6 | OpenSearch 2.x | Valkey(Redis)
+#   Profile 249 (target):   PHP 8.5 | MariaDB 11.4 | OpenSearch 3.x | Valkey(Redis)
+#
+# The profile is selected by .env (see .env.247 / .env.249). Switch with
+# `make profile-247` / `make profile-249`, then `make build && make up`.
+# Valkey stands in for Redis 7.2 — it speaks the same wire protocol, so Magento
+# cannot tell the difference.
+################################################################################
+
+services:
+
+  ##############################################################################
+  # Nginx - web entrypoint
+  ##############################################################################
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: ac-nginx-249
+    image: ac-nginx:249
+    networks:
+      ac-249-network:
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/upstream:/etc/nginx/upstream:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      # Nginx serves static files directly, so it needs the same code as PHP.
+      # Read-only: Nginx must never write into the source tree.
+      - ${PROJECT_PATH:-./volumes/ac-249/code}:/var/www/magento:ro
+      - nginx-cache:/var/cache/nginx
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    depends_on:
+      php:
+        condition: service_healthy
+    logging: &default-logging
+      driver: "${LOG_DRIVER:-json-file}"
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    labels:
+      - "com.ac.environment=2.4.9"
+      - "com.ac.service=nginx"
+
+  ##############################################################################
+  # PHP-FPM 8.5 - application runtime
+  # No host port: only Nginx talks to FPM, over the internal network.
+  ##############################################################################
+  php:
+    build:
+      context: ./php
+      dockerfile: ${PHP_DOCKERFILE:-8.5/Dockerfile}
+      args:
+        UID: "${UID:-1000}"
+        GID: "${GID:-1000}"
+    container_name: ac-php-249
+    image: ac-php:${PHP_TAG:-8.5}
+    networks:
+      ac-249-network:
+    environment:
+      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.9}"
+      PHP_MEMORY_LIMIT: "${PHP_MEMORY_LIMIT:-2G}"
+      PHP_MAX_EXECUTION_TIME: "${PHP_MAX_EXECUTION_TIME:-300}"
+      PHP_UPLOAD_MAX_FILESIZE: "${PHP_UPLOAD_MAX_FILESIZE:-128M}"
+      PHP_DISPLAY_ERRORS: "${PHP_DISPLAY_ERRORS:-1}"
+      PHP_OPCACHE_VALIDATE_TIMESTAMPS: "${PHP_OPCACHE_VALIDATE_TIMESTAMPS:-1}"
+      XDEBUG_ENABLED: "${XDEBUG_ENABLED:-0}"
+      XDEBUG_MODE: "${XDEBUG_MODE:-debug}"
+      XDEBUG_CLIENT_HOST: "${XDEBUG_CLIENT_HOST:-host.docker.internal}"
+      XDEBUG_CLIENT_PORT: "${XDEBUG_CLIENT_PORT:-9003}"
+      COMPOSER_MEMORY_LIMIT: "-1"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      # Bind mount = live code reload. Edit on the host, see it immediately.
+      - ${PROJECT_PATH:-./volumes/ac-249/code}:/var/www/magento:delegated
+      # auth.json is mounted read-only at runtime and never baked into the image.
+      - ${COMPOSER_AUTH_FILE:-./scripts/.composer-auth.json}:/var/www/.composer/auth.json:ro
+      - composer-cache:/var/www/.composer/cache
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "php-fpm", "-t"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+    logging: *default-logging
+    labels:
+      - "com.ac.environment=2.4.9"
+      - "com.ac.service=php"
+
+  ##############################################################################
+  # MariaDB — mirrors the project's Adobe Commerce Cloud DB.
+  # Service is still named 'mysql' so the Makefile targets and backup/restore
+  # scripts keep working; the image underneath is MariaDB. env.php points its DB
+  # host at 'mysql' (this service name), NOT localhost.
+  ##############################################################################
+  mysql:
+    image: ${DB_IMAGE:-mariadb:10.6}
+    container_name: ac-mysql-249
+    networks:
+      ac-249-network:
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-magento_249}"
+      MYSQL_USER: "${MYSQL_USER:-magento}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set in .env}"
+      MYSQL_INITDB_SKIP_TZINFO: "yes"
+      TZ: "${TZ:-UTC}"
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/magento.cnf:ro
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # healthcheck.sh ships in the MariaDB image and authenticates over the unix
+      # socket, so it needs no password on argv and works on both 10.6 and 11.4.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+    cap_add:
+      - SYS_NICE
+    logging: *default-logging
+    labels:
+      - "com.ac.environment=2.4.9"
+      - "com.ac.service=mysql"
+
+  ##############################################################################
+  # OpenSearch 3.x - required by AC 2.4.9 (2.x and Elasticsearch unsupported)
+  ##############################################################################
+  opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-3}
+    container_name: ac-opensearch-249
+    networks:
+      ac-249-network:
+    environment:
+      - cluster.name=ac-249-cluster
+      - node.name=ac-249-node1
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms${OPENSEARCH_HEAP_SIZE:-1g} -Xmx${OPENSEARCH_HEAP_SIZE:-1g}
+      # Security plugin is disabled deliberately: this stack is bound to
+      # localhost for local development only. Do not reuse this on a shared host.
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ports:
+      - "${OPENSEARCH_PORT:-9201}:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    logging: *default-logging
+    labels:
+      - "com.ac.environment=2.4.9"
+      - "com.ac.service=opensearch"
+
+  ##############################################################################
+  # Valkey 8 - cache + session backend (AC 2.4.9's supported Redis successor)
+  ##############################################################################
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: ac-valkey-249
+    networks:
+      ac-249-network:
+    command: ["valkey-server", "--maxmemory", "${VALKEY_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    ports:
+      - "${VALKEY_PORT:-6380}:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      - "com.ac.environment=2.4.9"
+      - "com.ac.service=valkey"
+
+################################################################################
+# Network
+################################################################################
+networks:
+  ac-249-network:
+    name: ac-249-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-172.29.0.0/24}
+
+################################################################################
+# Volumes
+################################################################################
+volumes:
+  mysql-data:
+    name: ac-249-mysql-data
+  opensearch-data:
+    name: ac-249-opensearch-data
+  valkey-data:
+    name: ac-249-valkey-data
+  composer-cache:
+    name: ac-249-composer-cache
+  nginx-cache:
+    name: ac-249-nginx-cache
