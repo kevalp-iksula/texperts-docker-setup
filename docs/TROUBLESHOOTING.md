@@ -267,3 +267,41 @@ rm -rf scripts/.composer-auth.json
 bash init-project.sh
 bash scripts/composer-auth.sh
 ```
+
+**`Composer could not find a composer.json file in /var/www/magento`** — the bind mount is
+empty: `PROJECT_PATH` in `.env` isn't pointing at a Magento checkout. Clone the code into
+`PROJECT_PATH` (composer can't create the project — `install` needs an existing
+`composer.json`), then recreate so the mount updates:
+
+```bash
+ls "$(grep ^PROJECT_PATH= .env | cut -d= -f2-)/composer.json"   # must exist
+make down && make up
+docker compose exec php ls /var/www/magento/composer.json        # container now sees it
+```
+
+**`Your lock file does not contain a compatible set of packages. Please run composer update`**
+— you're running `composer install` on the **wrong profile for the code**. A 2.4.7 codebase
+(its `composer.lock` pins PHP 8.1–8.3) cannot install on the 2.4.9 profile (PHP 8.5). Install
+the baseline on 2.4.7; reach 2.4.9 via `composer update`, not `install`:
+
+```bash
+make profile-247 && make rebuild && make up      # baseline runtime for a 2.4.7 lock
+make composer CMD='install'
+```
+
+Do **not** use `--ignore-platform-reqs` to force it — that produces a broken 2.4.7-on-8.5 tree.
+
+**`curl error 28 ... Timeout was reached` for every repo (including `repo.packagist.org`)** —
+the container has no outbound internet/DNS; composer can't download packages. The
+`ignore-unreachable` lines for magento/vnecoms/etc. are only the advisory fetch and are
+harmless, but packagist timing out is fatal. Test and fix:
+
+```bash
+docker compose exec php getent hosts repo.packagist.org                       # DNS?
+docker compose exec php curl -sSI --max-time 10 https://repo.packagist.org/packages.json | head -1
+```
+
+- On a corporate network, set `HTTP_PROXY`/`HTTPS_PROXY` on the `php` service (in
+  `docker-compose.override.yml`) and `make down && make up`.
+- DNS: add `dns: [8.8.8.8, 1.1.1.1]` to the `php` service or `/etc/docker/daemon.json`, then
+  restart Docker. Confirm the **host** itself has internet first.

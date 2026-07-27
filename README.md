@@ -102,14 +102,25 @@ PROJECT_PATH=/var/www/html/texperts-docker      # <-- your <MAGENTO_DIR>
 MYSQL_DATABASE=<db name matching your dump>      # e.g. ttb-prod-jan
 ```
 
-Pick the version profile that matches the code you're running:
+**Install the 2.4.7 baseline first — this is the default,** so you don't need to run
+anything here. A fresh `.env` already selects the 2.4.7 profile (PHP 8.3 / MariaDB 10.6 /
+OpenSearch 2), which is what a 2.4.7 codebase installs on. You move to 2.4.9 **later, by
+running the upgrade** (`composer update`), not by installing:
+
 ```bash
-make profile-247      # 2.4.7 baseline  (PHP 8.3 / MariaDB 10.6 / OpenSearch 2)
-# or
-make profile-249      # 2.4.9 target    (PHP 8.5 / MariaDB 11.4 / OpenSearch 3)
+# default after init — the 2.4.7 baseline. Only run this to switch back explicitly:
+make profile-247      # PHP 8.3 / MariaDB 10.6 / OpenSearch 2   (install the code on this)
+
+# do NOT switch to this until you're performing the 2.4.9 upgrade:
+make profile-249      # PHP 8.5 / MariaDB 11.4 / OpenSearch 3   (the upgrade target)
 ```
 
-**✓ Check:** `make config` validates, and `grep -E 'PROJECT_PATH|PHP_TAG|DB_IMAGE' .env` shows your dir + the profile you picked.
+> **Why 2.4.7 first:** a 2.4.7 `composer.lock` pins PHP 8.1–8.3, so `composer install` on
+> the 2.4.9 profile (PHP 8.5) fails with *"lock file does not contain a compatible set of
+> packages"*. Install on 2.4.7, get it running, **then** upgrade. See
+> [docs/ENVIRONMENT_ARCHITECTURE.md](docs/ENVIRONMENT_ARCHITECTURE.md).
+
+**✓ Check:** `make config` validates, and `grep -E 'PHP_TAG|DB_IMAGE|OPENSEARCH_VERSION' .env` shows `8.3` / `mariadb:10.6` / `2` (the baseline).
 
 ---
 
@@ -150,8 +161,15 @@ empty `vendor/`.
 ```bash
 make composer CMD='install'                      # uses your EE key; builds vendor/ (~10-20 min)
 ```
-`make composer` injects the EE key + unlimited memory automatically. If this fails on
-auth, your keys lack Adobe Commerce entitlement — see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+`make composer` injects the EE key + unlimited memory automatically. This installs the
+**2.4.7 baseline** (run it on the 2.4.7 profile — the default). If it fails on auth, your
+keys lack Adobe Commerce entitlement; if it fails with *"lock file does not contain a
+compatible set of packages"*, you're on the 2.4.9 profile — switch back with
+`make profile-247 && make rebuild`. See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+> **Upgrading to 2.4.9 is a separate, later step** — not `composer install`. Once the 2.4.7
+> baseline runs, you bump the metapackage and run `composer update` on `make profile-249`.
+> That's the upgrade project, covered in [docs/PHASE_3_PLAN.md](docs/PHASE_3_PLAN.md).
 
 **✓ Check:** `<MAGENTO_DIR>/bin/magento` and `<MAGENTO_DIR>/vendor/` now exist.
 

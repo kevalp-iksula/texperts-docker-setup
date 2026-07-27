@@ -24,7 +24,8 @@ bash init-project.sh
 #    Get them at commercemarketplace.adobe.com -> My Profile -> Access Keys
 bash scripts/composer-auth.sh
 
-# 4. Build images. First run pulls PHP 8.5 and compiles extensions: 5-10 min.
+# 4. Build images. First run pulls PHP (8.3 on the default 2.4.7 profile) and
+#    compiles extensions: 5-10 min.
 make build
 
 # 5. Start.

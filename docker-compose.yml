@@ -60,16 +60,16 @@ services:
   php:
     build:
       context: ./php
-      dockerfile: ${PHP_DOCKERFILE:-8.5/Dockerfile}
+      dockerfile: ${PHP_DOCKERFILE:-8.3/Dockerfile}
       args:
         UID: "${UID:-1000}"
         GID: "${GID:-1000}"
     container_name: ac-php-249
-    image: ac-php:${PHP_TAG:-8.5}
+    image: ac-php:${PHP_TAG:-8.3}
     networks:
       ac-249-network:
     environment:
-      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.9}"
+      MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.7}"
       PHP_MEMORY_LIMIT: "${PHP_MEMORY_LIMIT:-2G}"
       PHP_MAX_EXECUTION_TIME: "${PHP_MAX_EXECUTION_TIME:-300}"
       PHP_UPLOAD_MAX_FILESIZE: "${PHP_UPLOAD_MAX_FILESIZE:-128M}"
@@ -152,7 +152,7 @@ services:
   # OpenSearch 3.x - required by AC 2.4.9 (2.x and Elasticsearch unsupported)
   ##############################################################################
   opensearch:
-    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-3}
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-2}
     container_name: ac-opensearch-249
     networks:
       ac-249-network:
