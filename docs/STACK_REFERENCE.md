@@ -48,7 +48,6 @@ docker-setup/
 │   └── backups/                     # Database dumps
 │
 └── docs/
-    ├── ONBOARDING.md                # Fresh clone → running
     ├── QUICK_START.md               # Daily commands
     ├── ENVIRONMENT_ARCHITECTURE.md  # The version-switchable layout (2.4.7 ↔ 2.4.9)
     ├── STACK_REFERENCE.md           # This file

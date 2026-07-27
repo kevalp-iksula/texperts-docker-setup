@@ -108,6 +108,14 @@ step "Configuring .env"
 if [[ -f .env ]]; then
     warn ".env already exists; leaving it alone"
     echo "       Delete it first if you want a clean regeneration."
+    # Catch a UID/GID=0 baked by an earlier root/sudo run — it makes www-data==root
+    # and php-fpm refuses to start (ac-php-249 unhealthy). Warn so it gets fixed
+    # before 'make build'.
+    if grep -qE '^(UID|GID)=0$' .env; then
+        fail "existing .env has UID/GID=0 — www-data would become root and php-fpm will refuse to start."
+        fail "Fix before building: set UID/GID to a non-root user, then 'make rebuild':"
+        fail "  sed -i 's/^UID=.*/UID=1000/; s/^GID=.*/GID=1000/' .env"
+    fi
 else
     cp .env.example .env
 
@@ -120,6 +128,24 @@ else
     # above tells people to do — and bake the wrong GID into the image.
     host_uid="$(id -u)"
     host_gid="$(id -g "$(id -un)")"
+
+    # NEVER bake UID/GID 0 into the image. The php Dockerfile does
+    # `usermod -u ${UID} www-data`, so UID=0 makes www-data == root, and php-fpm
+    # then refuses to start its pool ("please specify user and group other than
+    # root" -> FPM initialization failed -> ac-php-249 unhealthy). This happens
+    # whenever init-project.sh is run as root or via sudo. Fall back to the
+    # invoking sudo user, then to 1000:1000, and warn.
+    if [[ "$host_uid" -eq 0 || "$host_gid" -eq 0 ]]; then
+        if [[ -n "${SUDO_UID:-}" && "${SUDO_UID}" -ne 0 ]]; then
+            host_uid="${SUDO_UID}"; host_gid="${SUDO_GID:-$SUDO_UID}"
+            warn "running as root — using the sudo user's ${host_uid}:${host_gid} for www-data (not 0:0)"
+        else
+            host_uid=1000; host_gid=1000
+            warn "running as root with no SUDO_UID — defaulting www-data to 1000:1000"
+            warn "if 1000 is not your real login user, set UID/GID in .env before 'make build'"
+        fi
+    fi
+
     sed -i "s/^UID=.*/UID=${host_uid}/" .env
     sed -i "s/^GID=.*/GID=${host_gid}/" .env
     ok "mapped container www-data to ${host_uid}:${host_gid}"

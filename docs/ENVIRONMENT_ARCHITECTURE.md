@@ -92,7 +92,7 @@ git reset --hard <2.4.7 commit>        # or re-clone the branch
 composer install                       # rebuilds vendor/ back to the 2.4.7 lock
 cd /var/www/html/docker-setup
 make profile-247 && make build && make up
-./scripts/restore-db.sh volumes/backups/ttb-prod-jan_baseline-2.4.7-june-prod_*.sql.gz
+bash scripts/restore-db.sh volumes/backups/ttb-prod-jan_baseline-2.4.7-june-prod_*.sql.gz
 ```
 
 The baseline snapshot in `volumes/backups/` is the clean 2.4.7-p1 "before" state, kept

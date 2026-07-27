@@ -1,10 +1,11 @@
 # Quick Start
 
-Adobe Commerce 2.4.9 — PHP 8.5, Nginx, MySQL 8.4, OpenSearch 3.x, Valkey 8.
+Adobe Commerce, version-switchable (2.4.7: PHP 8.3 / MariaDB 10.6 / OpenSearch 2 · 2.4.9:
+PHP 8.5 / MariaDB 11.4 / OpenSearch 3), Nginx, Valkey 8.
 
-> **New teammate setting up from a fresh clone?** Use [ONBOARDING.md](ONBOARDING.md) — it
-> covers installing Docker, getting the Magento code into place, secrets, and importing a
-> DB. This Quick Start assumes the stack is already set up.
+> **New teammate setting up from a fresh clone?** The full clone → Docker → code → DB →
+> running walkthrough now lives in the [README](../README.md). This Quick Start assumes the
+> stack is already set up.
 
 ## From zero to a running stack
 
@@ -17,11 +18,11 @@ echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf
 
 # 2. Initialise: creates .env with generated passwords, sets permissions,
 #    validates the compose file. Safe to re-run.
-./init-project.sh
+bash init-project.sh
 
 # 3. Adobe Commerce access keys (needed only when you install Magento).
 #    Get them at commercemarketplace.adobe.com -> My Profile -> Access Keys
-./scripts/composer-auth.sh
+bash scripts/composer-auth.sh
 
 # 4. Build images. First run pulls PHP 8.5 and compiles extensions: 5-10 min.
 make build

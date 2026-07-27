@@ -28,7 +28,7 @@ Sections 3A and 3B below cover each.
 Needed for both paths.
 
 ```bash
-./scripts/composer-auth.sh
+bash scripts/composer-auth.sh
 ```
 
 Keys come from <https://commercemarketplace.adobe.com> → My Profile → Access Keys.
