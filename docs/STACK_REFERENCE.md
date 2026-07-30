@@ -30,8 +30,8 @@ docker-setup/
 ├── nginx/
 │   ├── Dockerfile
 │   ├── nginx.conf                   # Global: gzip, buffers, timeouts
-│   ├── conf.d/ac-249.conf           # Magento vhost
-│   └── upstream/php-249.conf        # FPM upstream
+│   ├── conf.d/ac.conf           # Magento vhost
+│   └── upstream/php.conf        # FPM upstream
 │
 ├── mysql/
 │   ├── my.cnf                       # MariaDB-compatible InnoDB tuning for a dev box

@@ -74,7 +74,7 @@ in version, not a "2.4.7 folder" and a "2.4.9 folder." (The untouched
 
 ## The database: one shared volume
 
-All profiles share **one** Docker volume, `ac-249-mysql-data`. That's why the imported
+All profiles share **one** Docker volume, `ac-mysql-data`. That's why the imported
 `ttb-prod-jan` data survived the 2.4.7 → 2.4.9 switch — the code and PHP/search containers
 changed, but the DB volume persisted and was migrated in place (MariaDB 10.6 → 11.4).
 

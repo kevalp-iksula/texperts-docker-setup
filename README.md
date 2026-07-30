@@ -110,6 +110,14 @@ Then edit **`.env`**:
 PROJECT_PATH=/var/www/html/texperts-docker      # <-- your <MAGENTO_DIR>
 MYSQL_DATABASE=<db name matching your dump>      # e.g. ttb-prod-jan
 ```
+You only **name** the database here; the container creates it on first boot and you
+**import** the dump later, in step 8, once MySQL is running. `MYSQL_DATABASE` must match the
+name step 8 restores into.
+
+> `init-project.sh` writes `.env` as your user — **run it *without* `sudo`**, or the file
+> ends up owned by root and you can't edit these lines. (Recent versions fix ownership
+> automatically under sudo; older ones don't — see
+> [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#env-is-not-writable-owned-by-root).)
 
 **Install the 2.4.7 baseline first — this is the default,** so you don't need to run
 anything here. A fresh `.env` already selects the 2.4.7 profile (PHP 8.3 / MariaDB 10.6 /
@@ -133,7 +141,28 @@ make profile-249      # PHP 8.5 / MariaDB 11.4 / OpenSearch 3   (the upgrade tar
 
 ---
 
-## 4. Add your composer keys
+## 4. Build the images and start the stack
+
+```bash
+make build && make up && make status             # wait until all 5 services are healthy
+```
+The PHP-FPM container runs even before Magento is installed, so this succeeds with an
+empty `vendor/`. Bringing the stack up now means every step below has a running container
+to work against.
+
+> **Order matters.** Steps 2–3 must be done *before* this: the code must be cloned (it's
+> bind-mounted), and `init-project.sh` must have run (it creates `scripts/.composer-auth.json`
+> as a file and bakes your real UID/GID into `.env`). If you run `make build`/`make up` first,
+> `ac-php` comes up **unhealthy** — Docker created the mount sources as root-owned dirs
+> and the image baked the wrong UID. Fix: `docker logs ac-php | tail -30`, then
+> `make down && make rebuild && make up`. See
+> [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#php-container-ac-php-is-unhealthy).
+
+**✓ Check:** `make status` shows all 5 services (nginx, php, mysql, opensearch, valkey) `healthy`.
+
+---
+
+## 5. Add your composer keys
 
 ```bash
 bash scripts/composer-auth.sh                    # enter the EE public/private key
@@ -141,27 +170,8 @@ bash scripts/composer-auth.sh                    # enter the EE public/private k
 Also add the private-repo keys (vnecoms / mageplaza / magecomp) — the store won't
 `composer install` without them. They go into `scripts/.composer-auth.json` (gitignored).
 
-**✓ Check:** `make composer-validate` reports the credentials are valid.
-
----
-
-## 5. Build the images and start the stack
-
-```bash
-make build && make up && make status             # wait until all 5 services are healthy
-```
-The PHP-FPM container runs even before Magento is installed, so this succeeds with an
-empty `vendor/`.
-
-> **Order matters.** Steps 2–4 must be done *before* this: the code must be cloned (it's
-> bind-mounted), and `init-project.sh` must have run (it creates `scripts/.composer-auth.json`
-> as a file and bakes your real UID/GID into `.env`). If you run `make build`/`make up` first,
-> `ac-php-249` comes up **unhealthy** — Docker created the mount sources as root-owned dirs
-> and the image baked the wrong UID. Fix: `docker logs ac-php-249 | tail -30`, then
-> `make down && make rebuild && make up`. See
-> [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#php-container-ac-php-249-is-unhealthy).
-
-**✓ Check:** `make status` shows all 5 services (nginx, php, mysql, opensearch, valkey) `healthy`.
+**✓ Check:** `make composer-validate` reports the credentials are valid (needs the stack
+from step 4 running — that's why keys come after start-up).
 
 ---
 

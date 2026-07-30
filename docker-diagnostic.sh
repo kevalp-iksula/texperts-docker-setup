@@ -122,9 +122,15 @@ fi
 # 7. Check running Docker processes
 echo ""
 echo -e "${BLUE}[7] Checking running Docker processes...${NC}"
-if ps aux | grep -E '[d]ocker|[d]ockerd|[d]esktop' &> /dev/null; then
+# Match actual daemon/runtime process NAMES (pgrep -x = exact comm match), NOT
+# command-line substrings. A substring grep for 'docker'/'desktop' wrongly flags
+# xdg-desktop-portal, snapd-desktop-integration, `newgrp docker`, and this very
+# script (`bash docker-diagnostic.sh`) — so it reports Docker as "running" even
+# after it has been fully uninstalled. Names only, so only real Docker matches.
+docker_procs=$(pgrep -x -l 'dockerd|containerd|docker-proxy|docker-desktop' 2>/dev/null || true)
+if [ -n "$docker_procs" ]; then
     echo -e "${RED}✗ Found running Docker processes:${NC}"
-    ps aux | grep -E '[d]ocker|[d]ockerd|[d]esktop' | grep -v grep
+    echo "$docker_procs" | sed 's/^/    /'
     found_docker=1
 else
     echo -e "${GREEN}✓ No Docker processes running${NC}"

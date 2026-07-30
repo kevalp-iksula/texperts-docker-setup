@@ -50,10 +50,35 @@ if [[ -z "$PUBLIC_KEY" || -z "$PRIVATE_KEY" ]]; then
     exit 1
 fi
 
+# Optional GitHub token. Composer pulls some packages (e.g. cweagans/composer-patches)
+# as zipballs from api.github.com; unauthenticated the API is rate-limited to 60/hr,
+# which a full Magento install blows past — the requests then stall/drop. A token
+# raises the limit and makes those downloads reliable. Optional: press Enter to skip.
+echo
+echo "Optional: a GitHub token avoids api.github.com rate-limit stalls during install."
+echo "  Create one at github.com -> Settings -> Developer settings -> Tokens (no scopes needed)."
+read -rsp "GitHub token (press Enter to skip): " GITHUB_TOKEN
+echo
+
 # Create with restrictive permissions BEFORE writing, so the secret is never
 # briefly world-readable between creation and chmod.
 umask 077
-cat > "$AUTH_FILE" <<EOF
+if [[ -n "$GITHUB_TOKEN" ]]; then
+    cat > "$AUTH_FILE" <<EOF
+{
+    "http-basic": {
+        "repo.magento.com": {
+            "username": "${PUBLIC_KEY}",
+            "password": "${PRIVATE_KEY}"
+        }
+    },
+    "github-oauth": {
+        "github.com": "${GITHUB_TOKEN}"
+    }
+}
+EOF
+else
+    cat > "$AUTH_FILE" <<EOF
 {
     "http-basic": {
         "repo.magento.com": {
@@ -63,6 +88,7 @@ cat > "$AUTH_FILE" <<EOF
     }
 }
 EOF
+fi
 chmod 600 "$AUTH_FILE"
 
 echo "${GREEN}Wrote ${AUTH_FILE} (mode 600)${NC}"

@@ -85,6 +85,17 @@ profile-247: ## Switch .env to the 2.4.7 baseline (PHP 8.3 / MariaDB 10.6 / Open
 profile-249: ## Switch .env to the 2.4.9 target (PHP 8.5 / MariaDB 11.4 / OpenSearch 3)
 	@$(MAKE) --no-print-directory _apply-profile PROFILE=249
 
+.PHONY: profile-status
+profile-status: ## Show the active profile + versions (from .env)
+	@[ -f .env ] || { echo -e "$(RED).env missing.$(NC) Run 'make init' first."; exit 1; }
+	@mage=$$(grep -E '^MAGENTO_VERSION=' .env | cut -d= -f2-); \
+	 php=$$(grep -E '^PHP_TAG=' .env | cut -d= -f2-); \
+	 db=$$(grep -E '^DB_IMAGE=' .env | cut -d= -f2-); \
+	 os=$$(grep -E '^OPENSEARCH_VERSION=' .env | cut -d= -f2-); \
+	 case "$$mage" in 2.4.7*) prof="247 (baseline)";; 2.4.9*) prof="249 (target)";; *) prof="?";; esac; \
+	 echo -e "$(GREEN)Active profile: $$prof$(NC)  Adobe Commerce $$mage"; \
+	 echo    "  PHP $$php | $$db | OpenSearch $$os | Valkey 8"
+
 .PHONY: _apply-profile
 _apply-profile:
 	@[ -f .env ] || { echo -e "$(RED).env missing.$(NC) Run 'make init' first."; exit 1; }
@@ -184,7 +195,7 @@ fix-perms: ## Fix ownership/permissions inside the Magento tree
 #   enterprise -> magento/project-enterprise-edition  (Adobe Commerce, licensed)
 ################################################################################
 
-CODE_DIR := volumes/ac-249/code
+CODE_DIR := volumes/code
 
 .PHONY: magento-install
 magento-install: check-env magento-download magento-setup ## Full install: download source + setup:install + post-config
@@ -236,7 +247,7 @@ magento-setup: check-env ## Run setup:install against the running stack + post-c
 	   --language=en_US --currency=USD --timezone=UTC --use-rewrites=1 \
 	   --search-engine=opensearch \
 	   --opensearch-host=opensearch --opensearch-port=9200 \
-	   --opensearch-index-prefix=magento249 --opensearch-timeout=15 \
+	   --opensearch-index-prefix=magento2 --opensearch-timeout=15 \
 	   --session-save=redis --session-save-redis-host=valkey \
 	   --session-save-redis-port=6379 --session-save-redis-db=2 \
 	   --cache-backend=redis --cache-backend-redis-server=valkey \

@@ -82,9 +82,9 @@ composer create-project --repository-url=https://repo.magento.com/ \
 ```
 
 `/var/www/magento` must be empty or Composer refuses — remove the `.gitkeep`
-that `init-project.sh` leaves in `volumes/ac-249/code/` first. (The
+that `init-project.sh` leaves in `volumes/code/` first. (The
 `make magento-download` target handles this for you.) The path maps to
-`volumes/ac-249/code/` on the host.
+`volumes/code/` on the host.
 
 Expect 10–20 minutes and ~2GB in `vendor/`. If it dies with a memory error,
 `COMPOSER_MEMORY_LIMIT=-1` is already set in the container.
@@ -116,7 +116,7 @@ make magento-cmd CMD="setup:install \
   --search-engine=opensearch \
   --opensearch-host=opensearch \
   --opensearch-port=9200 \
-  --opensearch-index-prefix=magento249 \
+  --opensearch-index-prefix=magento2 \
   --opensearch-timeout=15 \
   --session-save=redis \
   --session-save-redis-host=valkey \
@@ -160,7 +160,7 @@ against a 2.4.9 codebase needs a real upgrade, not an import.
 
 ```bash
 # Either copy an existing project in:
-rsync -a --info=progress2 /path/to/existing/magento/ volumes/ac-249/code/
+rsync -a --info=progress2 /path/to/existing/magento/ volumes/code/
 
 # Or create the matching version from Composer, then import over it.
 ```
@@ -191,7 +191,7 @@ make magento-cmd CMD="config:set web/secure/base_url ${BASE_URL}"
 make magento-cmd CMD="config:set catalog/search/engine opensearch"
 make magento-cmd CMD="config:set catalog/search/opensearch_server_hostname opensearch"
 make magento-cmd CMD="config:set catalog/search/opensearch_server_port 9200"
-make magento-cmd CMD="config:set catalog/search/opensearch_index_prefix magento249"
+make magento-cmd CMD="config:set catalog/search/opensearch_index_prefix magento2"
 ```
 
 Then clear the inherited caches and rebuild:
@@ -282,7 +282,7 @@ several minutes even on fast hardware.
 ## What Phase 3 delivers
 
 - [ ] Composer credentials stored and validated
-- [ ] Magento 2.4.9 source in `volumes/ac-249/code/`
+- [ ] Magento 2.4.9 source in `volumes/code/`
 - [ ] Database installed or imported, schema current
 - [ ] OpenSearch and Valkey wired to container hostnames
 - [ ] Storefront and admin both load

@@ -9,31 +9,22 @@ PHP 8.5 / MariaDB 11.4 / OpenSearch 3), Nginx, Valkey 8.
 
 ## From zero to a running stack
 
+Full install (clone code → `init-project` → **build & start** → keys → `composer install`
+→ env.php → import DB) lives in the **[README](../README.md)**, in the correct order. The
+short version, once the host is tuned:
+
 ```bash
 cd /var/www/html/docker-setup
-
-# 1. One-time host tuning. OpenSearch will not start without this.
-sudo sysctl -w vm.max_map_count=262144
-echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf
-
-# 2. Initialise: creates .env with generated passwords, sets permissions,
-#    validates the compose file. Safe to re-run.
-bash init-project.sh
-
-# 3. Adobe Commerce access keys (needed only when you install Magento).
-#    Get them at commercemarketplace.adobe.com -> My Profile -> Access Keys
-bash scripts/composer-auth.sh
-
-# 4. Build images. First run pulls PHP (8.3 on the default 2.4.7 profile) and
-#    compiles extensions: 5-10 min.
-make build
-
-# 5. Start.
-make up
-
-# 6. Wait until every service reports healthy.
-make status
+sudo sysctl -w vm.max_map_count=262144           # one-time; OpenSearch needs it
+bash init-project.sh                             # writes .env — run WITHOUT sudo
+#   edit .env: PROJECT_PATH + MYSQL_DATABASE
+make build && make up && make status             # bring the stack up FIRST
+bash scripts/composer-auth.sh                    # then add keys (validate needs the stack up)
+make composer CMD='install'                      # build vendor/
 ```
+
+Order matters: the stack comes up **before** composer keys/validate and `composer install`,
+because those run inside the container. See the [README](../README.md) for each step's detail.
 
 ## "Why do I have to run `make` with `sudo`?"
 
@@ -61,19 +52,17 @@ Closing a single terminal window is not enough — the group set is inherited fr
 the graphical login. Avoid habitual `sudo make`: running the stack as root can
 drop root-owned files into your bind mount that then break live-reload editing.
 
-## Install Magento (Phase 3)
+## Getting Magento running
 
-Once the stack is healthy and your Composer keys are set (`make composer-auth`):
+This project bind-mounts an **existing** Magento checkout (`PROJECT_PATH`) and builds its
+dependencies — see the [README](../README.md) (build → keys → `make composer CMD='install'`
+→ `gen-env-php.sh` → `restore-db.sh` → compile).
 
-```bash
-make magento-install     # downloads source + runs setup:install + post-config
-```
+`make magento-install` is a *different* path — a brand-new `setup:install` (edition from
+`MAGENTO_EDITION` in `.env`), for standing up an empty store rather than running the
+texperts codebase. Don't use it for the upgrade flow.
 
-Edition is controlled by `MAGENTO_EDITION` in `.env` (`community` = Open Source,
-`enterprise` = Adobe Commerce). Full walkthrough and troubleshooting:
-[PHASE_3_PLAN.md](PHASE_3_PLAN.md).
-
-## Confirm it works
+## Confirm the stack is healthy
 
 ```bash
 curl http://localhost:8080/health
@@ -83,11 +72,8 @@ curl http://localhost:9201/_cluster/health?pretty
 # -> "status": "green" or "yellow"   (yellow is normal for a single node)
 
 make magento-cmd CMD='--version'
-# -> fails until Phase 3 installs Magento. Expected.
+# -> prints the version once vendor/ + env.php + DB are in place (README steps 5-8)
 ```
-
-Visiting <http://localhost:8080> before Phase 3 shows a placeholder saying the
-stack is up but Magento is not installed. That is the correct state after Phase 2.
 
 ## Everyday commands
 
@@ -113,7 +99,7 @@ Run `make` alone for the full list.
 
 | What | Where |
 |---|---|
-| Your Magento code | `volumes/ac-249/code/` → `/var/www/magento` in the container |
+| Your Magento code | `PROJECT_PATH` (set in `.env`) → `/var/www/magento` in the container |
 | Secrets | `.env`, `scripts/.composer-auth.json` (both mode 600, both gitignored) |
 | Backups | `volumes/backups/` |
 | Local-only tweaks | `docker-compose.override.yml` (copy the `.example`) |
@@ -123,7 +109,7 @@ Run `make` alone for the full list.
 | Service | Host | Container |
 |---|---|---|
 | Nginx | 8080 | 80 |
-| MySQL | 3307 | 3306 |
+| MariaDB | 3307 | 3306 |
 | OpenSearch | 9201 | 9200 |
 | Valkey | 6380 | 6379 |
 | PHP-FPM | *not published* | 9000 |
@@ -133,7 +119,7 @@ already run. Change them in `.env`, then `make ports` to check.
 
 ## Live code reload
 
-`volumes/ac-249/code/` is bind-mounted, and OPcache runs with
+Your checkout (`PROJECT_PATH`) is bind-mounted, and OPcache runs with
 `validate_timestamps=1`, so a saved PHP file takes effect on the next request —
 no restart, no flush.
 

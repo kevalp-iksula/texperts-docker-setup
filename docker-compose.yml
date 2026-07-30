@@ -19,10 +19,10 @@ services:
     build:
       context: ./nginx
       dockerfile: Dockerfile
-    container_name: ac-nginx-249
-    image: ac-nginx:249
+    container_name: ac-nginx
+    image: ac-nginx:latest
     networks:
-      ac-249-network:
+      ac-network:
     ports:
       - "${NGINX_PORT:-8080}:80"
     volumes:
@@ -32,7 +32,7 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
       # Nginx serves static files directly, so it needs the same code as PHP.
       # Read-only: Nginx must never write into the source tree.
-      - ${PROJECT_PATH:-./volumes/ac-249/code}:/var/www/magento:ro
+      - ${PROJECT_PATH:-./volumes/code}:/var/www/magento:ro
       - nginx-cache:/var/cache/nginx
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost/health"]
@@ -64,10 +64,10 @@ services:
       args:
         UID: "${UID:-1000}"
         GID: "${GID:-1000}"
-    container_name: ac-php-249
+    container_name: ac-php
     image: ac-php:${PHP_TAG:-8.3}
     networks:
-      ac-249-network:
+      ac-network:
     environment:
       MAGENTO_VERSION: "${MAGENTO_VERSION:-2.4.7}"
       PHP_MEMORY_LIMIT: "${PHP_MEMORY_LIMIT:-2G}"
@@ -83,7 +83,7 @@ services:
       TZ: "${TZ:-UTC}"
     volumes:
       # Bind mount = live code reload. Edit on the host, see it immediately.
-      - ${PROJECT_PATH:-./volumes/ac-249/code}:/var/www/magento:delegated
+      - ${PROJECT_PATH:-./volumes/code}:/var/www/magento:delegated
       # auth.json is mounted read-only at runtime and never baked into the image.
       - ${COMPOSER_AUTH_FILE:-./scripts/.composer-auth.json}:/var/www/.composer/auth.json:ro
       - composer-cache:/var/www/.composer/cache
@@ -116,12 +116,12 @@ services:
   ##############################################################################
   mysql:
     image: ${DB_IMAGE:-mariadb:10.6}
-    container_name: ac-mysql-249
+    container_name: ac-mysql
     networks:
-      ac-249-network:
+      ac-network:
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}"
-      MYSQL_DATABASE: "${MYSQL_DATABASE:-magento_249}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-magento}"
       MYSQL_USER: "${MYSQL_USER:-magento}"
       MYSQL_PASSWORD: "${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set in .env}"
       MYSQL_INITDB_SKIP_TZINFO: "yes"
@@ -153,12 +153,12 @@ services:
   ##############################################################################
   opensearch:
     image: opensearchproject/opensearch:${OPENSEARCH_VERSION:-2}
-    container_name: ac-opensearch-249
+    container_name: ac-opensearch
     networks:
-      ac-249-network:
+      ac-network:
     environment:
-      - cluster.name=ac-249-cluster
-      - node.name=ac-249-node1
+      - cluster.name=ac-cluster
+      - node.name=ac-node1
       - discovery.type=single-node
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms${OPENSEARCH_HEAP_SIZE:-1g} -Xmx${OPENSEARCH_HEAP_SIZE:-1g}
@@ -190,9 +190,9 @@ services:
   ##############################################################################
   valkey:
     image: valkey/valkey:8-alpine
-    container_name: ac-valkey-249
+    container_name: ac-valkey
     networks:
-      ac-249-network:
+      ac-network:
     command: ["valkey-server", "--maxmemory", "${VALKEY_MAXMEMORY:-512mb}", "--maxmemory-policy", "allkeys-lru", "--save", ""]
     ports:
       - "${VALKEY_PORT:-6380}:6379"
@@ -213,8 +213,8 @@ services:
 # Network
 ################################################################################
 networks:
-  ac-249-network:
-    name: ac-249-network
+  ac-network:
+    name: ac-network
     driver: bridge
     ipam:
       config:
@@ -225,12 +225,12 @@ networks:
 ################################################################################
 volumes:
   mysql-data:
-    name: ac-249-mysql-data
+    name: ac-mysql-data
   opensearch-data:
-    name: ac-249-opensearch-data
+    name: ac-opensearch-data
   valkey-data:
-    name: ac-249-valkey-data
+    name: ac-valkey-data
   composer-cache:
-    name: ac-249-composer-cache
+    name: ac-composer-cache
   nginx-cache:
-    name: ac-249-nginx-cache
+    name: ac-nginx-cache

@@ -98,10 +98,10 @@ fi
 step "Creating directories"
 ################################################################################
 for d in php/8.5 nginx/conf.d nginx/upstream nginx/ssl mysql/init scripts \
-         volumes/ac-249/code volumes/backups docs; do
+         volumes/code volumes/backups docs; do
     mkdir -p "$d"
 done
-touch mysql/init/.gitkeep volumes/backups/.gitkeep nginx/ssl/.gitkeep volumes/ac-249/code/.gitkeep
+touch mysql/init/.gitkeep volumes/backups/.gitkeep nginx/ssl/.gitkeep volumes/code/.gitkeep
 ok "directory tree present"
 
 ################################################################################
@@ -111,7 +111,7 @@ if [[ -f .env ]]; then
     warn ".env already exists; leaving it alone"
     echo "       Delete it first if you want a clean regeneration."
     # Catch a UID/GID=0 baked by an earlier root/sudo run — it makes www-data==root
-    # and php-fpm refuses to start (ac-php-249 unhealthy). Warn so it gets fixed
+    # and php-fpm refuses to start (ac-php unhealthy). Warn so it gets fixed
     # before 'make build'.
     if grep -qE '^(UID|GID)=0$' .env; then
         fail "existing .env has UID/GID=0 — www-data would become root and php-fpm will refuse to start."
@@ -134,7 +134,7 @@ else
     # NEVER bake UID/GID 0 into the image. The php Dockerfile does
     # `usermod -u ${UID} www-data`, so UID=0 makes www-data == root, and php-fpm
     # then refuses to start its pool ("please specify user and group other than
-    # root" -> FPM initialization failed -> ac-php-249 unhealthy). This happens
+    # root" -> FPM initialization failed -> ac-php unhealthy). This happens
     # whenever init-project.sh is run as root or via sudo. Fall back to the
     # invoking sudo user, then to 1000:1000, and warn.
     if [[ "$host_uid" -eq 0 || "$host_gid" -eq 0 ]]; then
@@ -196,6 +196,17 @@ else
     echo "       Run bash scripts/composer-auth.sh before installing Magento."
 fi
 
+# If this was run under sudo, everything above was created as root — you would then
+# be unable to edit .env (PROJECT_PATH / MYSQL_DATABASE) as your normal user. Hand
+# ownership back to the invoking user. init-project.sh does NOT need root.
+if [[ $EUID -eq 0 && -n "${SUDO_UID:-}" && "${SUDO_UID}" -ne 0 ]]; then
+    chown "${SUDO_UID}:${SUDO_GID:-$SUDO_UID}" \
+        .env scripts/.composer-auth.json 2>/dev/null || true
+    chown -R "${SUDO_UID}:${SUDO_GID:-$SUDO_UID}" \
+        volumes mysql/init nginx/ssl 2>/dev/null || true
+    warn "ran under sudo — gave .env and created files back to uid ${SUDO_UID} (sudo isn't needed for this script)"
+fi
+
 ################################################################################
 step "Checking host ports"
 ################################################################################
@@ -239,8 +250,8 @@ if (( NEEDS_SYSCTL )); then
     n=$((n+1))
 fi
 echo "  ${n}. edit .env  ->  set PROJECT_PATH (your Magento code) and MYSQL_DATABASE"; n=$((n+1))
+echo "  ${n}. make build && make up && make status   # bring the stack up first"; n=$((n+1))
 echo "  ${n}. bash scripts/composer-auth.sh          # Adobe Commerce + private-repo keys"; n=$((n+1))
-echo "  ${n}. make build && make up && make status"; n=$((n+1))
 echo "  ${n}. make composer CMD='install'            # builds vendor/ (2.4.7 baseline)"
 echo
 echo "See README.md for the full guide, docs/TROUBLESHOOTING.md if anything breaks."

@@ -23,6 +23,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         rsync \
     && rm -rf /var/lib/apt/lists/*
 
+# Prefer IPv4 for outbound connections. On hosts with a broken/absent IPv6 route,
+# libcurl (used by Composer) otherwise tries an AAAA address first and blocks the
+# full 10s connect timeout on every api.github.com request ("curl error 28 ...
+# Timeout was reached"). Preferring IPv4 makes the connect succeed immediately;
+# IPv6 still works where it is actually routed.
+RUN printf 'precedence ::ffff:0:0/96 100\n' >> /etc/gai.conf
+
 # Extensions required by Adobe Commerce 2.4.9, plus opcache and xdebug.
 # Xdebug is installed but NOT enabled — the entrypoint switches it on only
 # when XDEBUG_ENABLED=1, so the default path carries no debugger overhead.

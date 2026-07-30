@@ -11,6 +11,21 @@ docker stats --no-stream     # is something starving?
 
 ---
 
+## `.env` is not writable (owned by root)
+
+You ran `init-project.sh` **with `sudo`**, so `.env` (and `scripts/.composer-auth.json`) were
+created as **root:root, mode 600** — your editor can't write them to set `PROJECT_PATH` /
+`MYSQL_DATABASE`. `init-project.sh` does **not** need root.
+
+```bash
+sudo chown "$USER:$USER" .env scripts/.composer-auth.json    # take ownership back
+```
+
+Then edit `.env` normally. Next time, run `bash init-project.sh` **without** sudo (current
+versions also chown these back to you automatically when run under sudo).
+
+---
+
 ## `docker: 'compose' is not a docker command` (every `make` target fails)
 
 That box has Docker Compose **v1** (`docker-compose`) but not the **v2** plugin. This stack
@@ -28,7 +43,7 @@ docker error.
 
 ---
 
-## php container (`ac-php-249`) is unhealthy
+## php container (`ac-php`) is unhealthy
 
 The php healthcheck is just `php-fpm -t` (a static config test), so it does **not** fail
 because Magento isn't installed. A php container that *stays* unhealthy means php-fpm keeps
@@ -43,7 +58,7 @@ bakes the wrong UID.
 **See the real reason, then rebuild in the right order:**
 
 ```bash
-docker logs ac-php-249 | tail -30          # the actual restart cause
+docker logs ac-php | tail -30          # the actual restart cause
 make down
 ```
 
@@ -212,7 +227,7 @@ huge reindex). Timeouts are already 600s.
 
 **403 / blank page at `/`** — before Phase 3, `pub/index.php` does not exist and
 you get the placeholder message. That is correct. After Phase 3, check the code
-actually landed in `volumes/ac-249/code/`.
+actually landed in `volumes/code/`.
 
 **Config change ignored** — the config is bind-mounted, but Nginx must reload:
 
@@ -255,7 +270,7 @@ in `.env`, then `make restart`.
 ```bash
 make clean          # containers and networks; keeps data and code
 make destroy        # + all volumes: database, indexes, cache. Asks first.
-rm -rf volumes/ac-249/code/*    # + the source. Nothing left.
+rm -rf volumes/code/*    # + the source. Nothing left.
 ```
 
 `make destroy` never touches your source code — only Docker volumes.
@@ -334,22 +349,32 @@ docker compose exec php curl -sSI --max-time 10 https://repo.packagist.org/packa
   restart Docker. Confirm the **host** itself has internet first.
 
 **`curl error 28 ... api.github.com` (only GitHub times out; packagist worked)** — composer
-fetches package zips through the GitHub API, and GitHub is the one host failing. Usual causes:
-transient throttling, unauthenticated rate-limits, an IPv6 dead-end, or a firewall.
+fetches package zips (e.g. `cweagans/composer-patches`) through the GitHub API. The usual
+cause is an **IPv6 dead-end**: the host has no working IPv6 route, GitHub has AAAA records,
+and libcurl blocks the full 10s connect timeout on IPv6 before it would fall back.
+
+**The PHP image now prefers IPv4** (`/etc/gai.conf`, baked into `php/8.3` + `php/8.5`), which
+fixes this for new builds. If you hit it on an existing image, **rebuild to pick up the fix**:
 
 ```bash
-# 1. Retry — composer resumes from cache; curl 28 to GitHub is often transient.
+make down && make rebuild && make up
 make composer CMD='install'
-
-# 2. Diagnose: does forcing IPv4 succeed where the default hangs?
-docker compose exec php curl -sSI  --max-time 10 https://api.github.com | head -1
-docker compose exec php curl -4 -sSI --max-time 10 https://api.github.com | head -1
 ```
 
-- **`-4` works, default hangs** → IPv6 dead-end. Disable IPv6 for the container network or add
-  a proxy; forcing IPv4 at the OS/Docker level resolves it.
-- **A GitHub token fixes throttling** (a full Magento install exceeds the 60/hr
-  unauthenticated API limit). Add to `scripts/.composer-auth.json` (gitignored):
+Still failing? Diagnose and escalate:
+
+```bash
+docker compose exec php curl -sSI  --max-time 10 https://api.github.com | head -1   # default
+docker compose exec php curl -4 -sSI --max-time 10 https://api.github.com | head -1  # force IPv4
+```
+
+- **`-4` works, default still hangs after a rebuild** → force it harder: add
+  `sysctls: ["net.ipv6.conf.all.disable_ipv6=1"]` to the `php` service in
+  `docker-compose.override.yml`, then `make down && make up`. (Not forced in the base compose
+  file — it fails to start on hosts with IPv6 fully compiled out.)
+- **A GitHub token** removes API rate-limit stalls (a full install exceeds 60 req/hr
+  unauthenticated). `bash scripts/composer-auth.sh` now prompts for one, or add it manually to
+  `scripts/.composer-auth.json`:
   ```json
   { "github-oauth": { "github.com": "ghp_your_token" }, "http-basic": { "…": "…" } }
   ```
