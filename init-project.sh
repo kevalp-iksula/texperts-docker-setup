@@ -48,7 +48,9 @@ fi
 if docker compose version >/dev/null 2>&1; then
     ok "docker compose $(docker compose version --short)"
 else
-    fail "docker compose v2 not found"; missing=1
+    fail "docker compose v2 not found (this stack needs 'docker compose', not the v1 'docker-compose')"
+    echo "       Install : sudo apt-get install docker-compose-plugin   (or re-run sudo bash docker-setup.sh)"
+    missing=1
 fi
 
 # Docker must be usable without sudo, or every make target will need it.
@@ -191,17 +193,17 @@ else
     echo '{}' > scripts/.composer-auth.json
     chmod 600 scripts/.composer-auth.json
     warn "no Composer credentials yet; created an empty placeholder"
-    echo "       Run ./scripts/composer-auth.sh before installing Magento."
+    echo "       Run bash scripts/composer-auth.sh before installing Magento."
 fi
 
 ################################################################################
 step "Checking host ports"
 ################################################################################
-if ./scripts/port-check.sh >/dev/null 2>&1; then
+if bash scripts/port-check.sh >/dev/null 2>&1; then
     ok "all required ports are free"
 else
     warn "one or more ports are in use"
-    ./scripts/port-check.sh || true
+    bash scripts/port-check.sh || true
     echo "       Change the port in .env, or stop whatever holds it."
 fi
 
@@ -222,23 +224,26 @@ echo "############################################################"
 echo "${GREEN}#  Initialisation complete                                 #${NC}"
 echo "############################################################"
 echo
-echo "Configured for Adobe Commerce 2.4.9:"
-echo "  PHP 8.5 | Nginx | MySQL 8.4 | OpenSearch 3.x | Valkey 8"
+# Read the configured profile back from .env so this banner never goes stale.
+php_tag="$(grep -E '^PHP_TAG=' .env | cut -d= -f2-)"
+db_image="$(grep -E '^DB_IMAGE=' .env | cut -d= -f2-)"
+os_ver="$(grep -E '^OPENSEARCH_VERSION=' .env | cut -d= -f2-)"
+mage_ver="$(grep -E '^MAGENTO_VERSION=' .env | cut -d= -f2-)"
+echo "Configured profile: Adobe Commerce ${mage_ver:-?} (default: 2.4.7 baseline)"
+echo "  PHP ${php_tag:-?} | Nginx | ${db_image:-?} | OpenSearch ${os_ver:-?} | Valkey 8"
 echo
-echo "Next steps:"
+echo "Next steps  (full clone -> DB -> running walkthrough: README.md):"
 n=1
 if (( NEEDS_SYSCTL )); then
     echo "  ${n}. ${YELLOW}sudo sysctl -w vm.max_map_count=262144${NC}   (OpenSearch will not start without this)"
     n=$((n+1))
 fi
-echo "  ${n}. ./scripts/composer-auth.sh    # Adobe Commerce access keys"; n=$((n+1))
-echo "  ${n}. make build                    # build images (first run: 5-10 min)"; n=$((n+1))
-echo "  ${n}. make up                       # start the stack"; n=$((n+1))
-echo "  ${n}. make status                   # wait for all services healthy"; n=$((n+1))
-echo "  ${n}. curl http://localhost:$(grep -E '^NGINX_PORT=' .env | cut -d= -f2-)/health"
+echo "  ${n}. edit .env  ->  set PROJECT_PATH (your Magento code) and MYSQL_DATABASE"; n=$((n+1))
+echo "  ${n}. bash scripts/composer-auth.sh          # Adobe Commerce + private-repo keys"; n=$((n+1))
+echo "  ${n}. make build && make up && make status"; n=$((n+1))
+echo "  ${n}. make composer CMD='install'            # builds vendor/ (2.4.7 baseline)"
 echo
-echo "Then follow docs/PHASE_3_PLAN.md to install Magento."
+echo "See README.md for the full guide, docs/TROUBLESHOOTING.md if anything breaks."
 echo
-echo "${YELLOW}Generated credentials are in .env (mode 600). Passwords were randomised;${NC}"
-echo "${YELLOW}read them with: grep PASSWORD .env${NC}"
+echo "${YELLOW}Generated credentials are in .env (mode 600). Read them with: grep PASSWORD .env${NC}"
 echo

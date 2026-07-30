@@ -352,6 +352,12 @@ destroy: ## DELETE ALL DATA - containers, volumes, database. Asks first.
 
 .PHONY: check-env
 check-env:
+	@docker compose version >/dev/null 2>&1 || { \
+		echo -e "$(RED)Docker Compose v2 is required$(NC) (this stack uses 'docker compose', not the v1 'docker-compose')."; \
+		echo    "Install it:  sudo apt-get install docker-compose-plugin   (or re-run: sudo bash docker-setup.sh)"; \
+		echo    "Then check:  docker compose version"; \
+		exit 1; \
+	}
 	@if [ ! -f .env ]; then \
 		echo -e "$(RED).env is missing.$(NC) Run 'make init' first."; exit 1; \
 	fi

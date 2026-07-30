@@ -11,6 +11,23 @@ docker stats --no-stream     # is something starving?
 
 ---
 
+## `docker: 'compose' is not a docker command` (every `make` target fails)
+
+That box has Docker Compose **v1** (`docker-compose`) but not the **v2** plugin. This stack
+calls `docker compose` (v2) everywhere and relies on v2-only healthcheck gating, so v2 is
+required — v1 is not a supported fallback.
+
+```bash
+docker compose version                          # errors on a v1-only box
+sudo apt-get install docker-compose-plugin      # install v2  (or: sudo bash docker-setup.sh)
+docker compose version                          # should now print v2.x
+```
+
+`make up` / `make build` now preflight this and print the same hint instead of the raw
+docker error.
+
+---
+
 ## php container (`ac-php-249`) is unhealthy
 
 The php healthcheck is just `php-fpm -t` (a static config test), so it does **not** fail
@@ -257,6 +274,16 @@ bash scripts/composer-auth.sh      # re-enter keys
 Keys live at <https://commercemarketplace.adobe.com> → My Profile → Access Keys.
 A key that works for 2.4.7 will not necessarily carry a 2.4.9 entitlement.
 
+**`composer-auth.sh` seems to hang at "Verifying credentials…"** — after writing the keys it
+checks them against `repo.magento.com`. On a slow/blocked network that request now times out
+in ~25s and reports the keys were still saved (it no longer blocks for minutes or exits with
+an error). To skip the check entirely:
+
+```bash
+SKIP_VERIFY=1 bash scripts/composer-auth.sh     # writes keys, no network check
+make composer-validate                           # verify later, once the network is fine
+```
+
 **auth.json is a directory, not a file** — Docker creates a directory when it
 bind-mounts a path that does not exist. `init-project.sh` pre-creates the file to
 prevent this. If it happened:
@@ -305,3 +332,26 @@ docker compose exec php curl -sSI --max-time 10 https://repo.packagist.org/packa
   `docker-compose.override.yml`) and `make down && make up`.
 - DNS: add `dns: [8.8.8.8, 1.1.1.1]` to the `php` service or `/etc/docker/daemon.json`, then
   restart Docker. Confirm the **host** itself has internet first.
+
+**`curl error 28 ... api.github.com` (only GitHub times out; packagist worked)** — composer
+fetches package zips through the GitHub API, and GitHub is the one host failing. Usual causes:
+transient throttling, unauthenticated rate-limits, an IPv6 dead-end, or a firewall.
+
+```bash
+# 1. Retry — composer resumes from cache; curl 28 to GitHub is often transient.
+make composer CMD='install'
+
+# 2. Diagnose: does forcing IPv4 succeed where the default hangs?
+docker compose exec php curl -sSI  --max-time 10 https://api.github.com | head -1
+docker compose exec php curl -4 -sSI --max-time 10 https://api.github.com | head -1
+```
+
+- **`-4` works, default hangs** → IPv6 dead-end. Disable IPv6 for the container network or add
+  a proxy; forcing IPv4 at the OS/Docker level resolves it.
+- **A GitHub token fixes throttling** (a full Magento install exceeds the 60/hr
+  unauthenticated API limit). Add to `scripts/.composer-auth.json` (gitignored):
+  ```json
+  { "github-oauth": { "github.com": "ghp_your_token" }, "http-basic": { "…": "…" } }
+  ```
+  Token: GitHub → Settings → Developer settings → Personal access tokens (no scopes needed).
+- **Both hang** → firewall/proxy blocking GitHub; apply the proxy block above.

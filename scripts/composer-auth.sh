@@ -68,17 +68,32 @@ chmod 600 "$AUTH_FILE"
 echo "${GREEN}Wrote ${AUTH_FILE} (mode 600)${NC}"
 echo
 
-if command -v docker >/dev/null 2>&1 && docker compose ps php 2>/dev/null | grep -q 'Up\|running'; then
-    echo "Verifying credentials against repo.magento.com ..."
-    if docker compose exec -T -u www-data php \
-        curl -fsS -o /dev/null -u "${PUBLIC_KEY}:${PRIVATE_KEY}" \
-        https://repo.magento.com/packages.json 2>/dev/null; then
-        echo "${GREEN}Credentials accepted by repo.magento.com.${NC}"
-    else
-        echo "${RED}repo.magento.com rejected these keys, or the network is unreachable.${NC}"
-        echo "Double-check the keys at commercemarketplace.adobe.com -> My Profile -> Access Keys."
-        exit 1
-    fi
+# The keys are already written above; verification is a best-effort convenience.
+# Skip it entirely with SKIP_VERIFY=1 (useful on a slow/blocked network).
+if [[ "${SKIP_VERIFY:-0}" == "1" ]]; then
+    echo "${YELLOW}SKIP_VERIFY=1 — not checking the keys against repo.magento.com.${NC}"
+    echo "Run 'make composer-validate' later to verify."
+elif command -v docker >/dev/null 2>&1 && docker compose ps php 2>/dev/null | grep -q 'Up\|running'; then
+    echo "Verifying credentials against repo.magento.com (up to ~25s) ..."
+    # --connect-timeout/--max-time keep this from hanging for minutes on a blocked
+    # network; curl exits 28 on timeout, 22 on an HTTP >=400 (bad keys, via -f).
+    set +e
+    docker compose exec -T -u www-data php \
+        curl -fsS -o /dev/null --connect-timeout 10 --max-time 25 \
+        -u "${PUBLIC_KEY}:${PRIVATE_KEY}" \
+        https://repo.magento.com/packages.json 2>/dev/null
+    rc=$?
+    set -e
+    case "$rc" in
+        0)  echo "${GREEN}Credentials accepted by repo.magento.com.${NC}" ;;
+        22) echo "${RED}repo.magento.com rejected these keys (HTTP error).${NC}"
+            echo "Double-check them at commercemarketplace.adobe.com -> My Profile -> Access Keys,"
+            echo "then re-run this script. (The file was still written; fix and overwrite.)"
+            exit 1 ;;
+        *)  # 28 timeout, 6/7 DNS/connect, etc. — not a key problem. Keys are saved.
+            echo "${YELLOW}Could not reach repo.magento.com to verify (network unreachable/slow — curl ${rc}).${NC}"
+            echo "Your keys were saved. Verify later with 'make composer-validate'." ;;
+    esac
 else
     echo "${YELLOW}PHP container is not running, so the keys were not verified.${NC}"
     echo "Start the stack with 'make up', then run 'make composer-validate'."

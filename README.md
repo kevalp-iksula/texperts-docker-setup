@@ -65,8 +65,17 @@ docker info >/dev/null && echo "Docker OK (no sudo)"
 Avoid habitual `sudo make` — running the stack as root drops root-owned files into your
 bind mount that then break live-reload editing.
 
-**→ Docker already installed:** skip straight to step 2. (If `make` still needs `sudo`
-there too, it's the same group-not-active issue — run `newgrp docker` or re-login.)
+**→ Docker already installed:** skip straight to step 2 — but confirm you have **Compose
+v2** (`docker compose`, not the old v1 `docker-compose`), which this stack requires:
+
+```bash
+docker compose version                          # must print v2.x
+# if that errors ('compose' is not a docker command):
+sudo apt-get install docker-compose-plugin      # or re-run: sudo bash docker-setup.sh
+```
+
+(If `make` still needs `sudo` here too, it's the same group-not-active issue — run
+`newgrp docker` or re-login.)
 
 **✓ Check:** `id -nG` lists `docker`, `docker info` prints without `sudo`, and
 `docker compose version` shows v2.
