@@ -69,6 +69,10 @@ logs: ## Tail logs from all services (SERVICE=php to narrow)
 ports: ## Check that required host ports are free
 	@./scripts/port-check.sh
 
+.PHONY: net-check
+net-check: ## Diagnose container internet access (run this if composer/downloads hang)
+	@./scripts/net-check.sh
+
 .PHONY: config
 config: ## Validate and render the compose file
 	@$(DC) config
@@ -290,9 +294,21 @@ composer-validate: ## Check that stored Composer credentials still work
 	@# PHP code must stay on ONE physical line: it is passed to `php -r` inside
 	@# single quotes, and PHP does not treat a backslash-newline as a line
 	@# continuation the way bash does — splitting it makes PHP see a literal '\'.
-	@$(PHP_TTY) php -r '$$a=json_decode(file_get_contents("/var/www/.composer/auth.json"),true)["http-basic"]["repo.magento.com"]??null; if(!$$a){fwrite(STDERR,"no repo.magento.com entry in auth.json\n");exit(2);} $$ch=curl_init("https://repo.magento.com/packages.json"); curl_setopt_array($$ch,[CURLOPT_USERPWD=>$$a["username"].":".$$a["password"],CURLOPT_RETURNTRANSFER=>true,CURLOPT_NOBODY=>true]); curl_exec($$ch); exit(curl_getinfo($$ch,CURLINFO_HTTP_CODE)===200?0:1);' \
-		&& echo -e "$(GREEN)Composer credentials are valid.$(NC)" \
-		|| { echo -e "$(RED)Composer credentials rejected or missing. Re-run: make composer-auth$(NC)"; exit 1; }
+	@#
+	@# CONNECTTIMEOUT/TIMEOUT are mandatory, not tuning. libcurl's DEFAULT connect
+	@# timeout is 300s, so on a host whose container has no egress this target hung
+	@# for a full 5 minutes and then blamed the credentials. Exit codes now separate
+	@# the three outcomes: 2 = no auth entry, 3 = never reached the host (HTTP code
+	@# 0, a network fault), 1 = the server actually rejected the keys.
+	@$(PHP_TTY) php -r '$$a=json_decode(file_get_contents("/var/www/.composer/auth.json"),true)["http-basic"]["repo.magento.com"]??null; if(!$$a){fwrite(STDERR,"no repo.magento.com entry in auth.json\n");exit(2);} $$ch=curl_init("https://repo.magento.com/packages.json"); curl_setopt_array($$ch,[CURLOPT_USERPWD=>$$a["username"].":".$$a["password"],CURLOPT_RETURNTRANSFER=>true,CURLOPT_NOBODY=>true,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>25]); curl_exec($$ch); $$c=curl_getinfo($$ch,CURLINFO_HTTP_CODE); if($$c===0){fwrite(STDERR,"could not reach repo.magento.com: ".curl_error($$ch)."\n");exit(3);} exit($$c===200?0:1);'; \
+	 rc=$$?; \
+	 case $$rc in \
+	   0) echo -e "$(GREEN)Composer credentials are valid.$(NC)" ;; \
+	   2) echo -e "$(RED)No repo.magento.com entry in auth.json.$(NC) Run: make composer-auth"; exit 1 ;; \
+	   3) echo -e "$(RED)Could not reach repo.magento.com — a NETWORK fault, not your keys.$(NC)"; \
+	      echo -e "$(YELLOW)Diagnose it with: make net-check$(NC)"; exit 1 ;; \
+	   *) echo -e "$(RED)repo.magento.com rejected these keys. Re-run: make composer-auth$(NC)"; exit 1 ;; \
+	 esac
 
 ################################################################################
 # Database
