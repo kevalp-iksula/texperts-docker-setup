@@ -7,7 +7,12 @@ make status                  # which container is unhealthy?
 make logs SERVICE=php        # what did it say? (also: nginx, mysql, opensearch)
 make config                  # is .env resolving to what you expect?
 docker stats --no-stream     # is something starving?
+sudo make net-check          # anything that HANGS on a download — start here
 ```
+
+If a command **hangs** rather than erroring — composer, `magento-download`, a package
+fetch — it is almost always container networking, not the tool. Go straight to
+[Container has no internet access](#container-has-no-internet-access-anything-that-downloads-hangs).
 
 ---
 
@@ -277,6 +282,121 @@ rm -rf volumes/code/*    # + the source. Nothing left.
 
 ---
 
+## Container has no internet access (anything that downloads hangs)
+
+**Run this first — it performs the whole diagnosis below automatically:**
+
+```bash
+sudo make net-check          # sudo matters: the usual cause is an iptables rule
+```
+
+### What this looks like
+
+The tell is a **hang followed by a misleading error**, not an immediate failure. A real
+incident: `make composer-validate` took 5 minutes and reported "credentials rejected."
+The credentials were perfectly fine — the container simply had no route to the internet.
+
+Two things make this genuinely hard to spot, and both are why `net-check` exists:
+
+- **DNS still works inside the container.** Docker's embedded resolver (127.0.0.11) answers
+  from the daemon's own network stack and never crosses the `FORWARD` chain. A successful
+  `getent hosts` proves nothing about egress.
+- **The host is unaffected.** Host traffic doesn't traverse `FORWARD` either, so your
+  browser and a host-level `curl` both work fine while every container is cut off.
+
+### Confirm it by hand
+
+```bash
+# Container: 000 + curl 28 = the TCP handshake never completed
+docker compose exec -T php curl -sS -o /dev/null --connect-timeout 10 \
+    -w '%{http_code} %{time_connect}\n' https://repo.magento.com/packages.json
+
+# Host, same request: a 401 here proves host egress is fine AND that keys aren't the issue
+curl -sS -o /dev/null --connect-timeout 10 -w '%{http_code}\n' https://repo.magento.com/packages.json
+```
+
+`time_connect` of `0.000000` means no SYN/ACK ever came back. Container blocked + host
+working = the fault is in Docker's networking, every time.
+
+### The actual cause, and the fix
+
+```bash
+sysctl net.ipv4.ip_forward                    # must be 1
+sudo iptables -S DOCKER-USER                  # must contain no DROP/REJECT
+sudo iptables -S DOCKER-FORWARD | grep ACCEPT # must list YOUR live bridge
+sudo iptables -t nat -S POSTROUTING | grep 172.29   # must MASQUERADE your subnet
+ip route | grep 172.29                        # should be exactly ONE line
+```
+
+Your live bridge is `br-` + the first 12 characters of the network ID:
+
+```bash
+docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$v.NetworkID}}{{end}}' \
+    $(docker compose ps -q php)
+```
+
+**In the real incident, the live bridge appeared in neither the `DOCKER-FORWARD` ACCEPT list
+nor the NAT `MASQUERADE` list.** Outbound SYNs matched no ACCEPT rule, fell through to the
+ufw chains, and were dropped by the `FORWARD` chain's default `DROP` policy.
+
+Note that `FORWARD policy DROP` is **normal** on a ufw host, and so is ufw being active —
+Docker's `DOCKER-USER` / `DOCKER-FORWARD` jumps sit ahead of the ufw chains and are supposed
+to ACCEPT container traffic first. Don't chase the DROP policy; check whether the ACCEPT for
+your bridge is present.
+
+The trigger is usually a ruleset flush **after** the network was created — a `ufw reload`,
+an `iptables-restore`, or a security agent. Docker does not reinstall per-bridge rules until
+the daemon restarts. So:
+
+```bash
+docker compose down
+docker network prune -f                       # clears stale duplicate networks
+sudo systemctl restart docker                 # reinstalls ALL filter + NAT rules
+docker compose up -d
+sudo make net-check                           # verify
+```
+
+Verify that the bridge ID in `ip route` matches the one in **both** the `DOCKER-FORWARD`
+ACCEPT and the NAT `MASQUERADE`. If those three agree, egress works.
+
+### Stale and orphaned bridges
+
+`docker-compose.yml` pins `subnet: ${NETWORK_SUBNET:-172.29.0.0/24}` while the network *name*
+varies per instance, so every network recreated under a different name claims the **same
+subnet**. Leftovers accumulate and Docker ends up holding rules for only one of them. The
+incident host had four bridges on `172.29.0.0/24`:
+
+```
+172.29.0.0/24 dev br-8df5a3ef7b37 ... linkdown    <- stale
+172.29.0.0/24 dev br-d69b17660019 ... linkdown    <- stale
+172.29.0.0/24 dev br-d9e61249cb42 ... linkdown    <- stale
+172.29.0.0/24 dev br-05a0849bfe49 ...             <- live, and missing its rules
+```
+
+`linkdown` means no container is attached. Those routes are **not** themselves the fault —
+the kernel skips linkdown routes when choosing an output route — but they are a reliable
+fingerprint that the ruleset has drifted. `docker network prune -f` clears them.
+
+If a bridge survives the prune, its interface has outlived its Docker network and no `docker`
+command can remove it (`docker network rm` reports *network not found*). Delete the interface
+directly — safe when it shows `linkdown`, since nothing is attached:
+
+```bash
+sudo ip link delete br-8df5a3ef7b37
+```
+
+To avoid the collision entirely when running more than one instance on a box, give each a
+distinct `NETWORK_SUBNET` in its `.env` (e.g. `172.30.0.0/24`).
+
+### If only *some* destinations fail
+
+If `repo.magento.com` times out but `packagist.org` responds, it's a targeted firewall or
+proxy policy rather than broken Docker networking. `net-check` distinguishes these two cases
+for you. The php service has no `HTTP_PROXY`/`HTTPS_PROXY` set in `docker-compose.yml`, so on
+a network that mandates a proxy you must add them there.
+
+---
+
 ## Composer
 
 **402 / "Could not authenticate against repo.magento.com"**
@@ -288,6 +408,22 @@ bash scripts/composer-auth.sh      # re-enter keys
 
 Keys live at <https://commercemarketplace.adobe.com> → My Profile → Access Keys.
 A key that works for 2.4.7 will not necessarily carry a 2.4.9 entitlement.
+
+**`make composer-validate` is slow, or blames the credentials when they are fine** — it now
+caps the request at 10s connect / 25s total and distinguishes the failure modes, so a slow
+run is itself diagnostic:
+
+| Result | Meaning |
+| --- | --- |
+| ~1s, "credentials are valid" | all good |
+| fast, "No repo.magento.com entry in auth.json" | run `make composer-auth` |
+| ~10s, "a NETWORK fault, not your keys" | container has no egress → `sudo make net-check` |
+| fast, "rejected these keys" | genuinely wrong or unentitled keys |
+
+Before this was fixed the target used libcurl's **default 300s connect timeout**, so a host
+with no container egress hung for a full 5 minutes and then wrongly reported the keys as
+rejected. If you see that on an older checkout, the problem is the network — see
+[Container has no internet access](#container-has-no-internet-access-anything-that-downloads-hangs).
 
 **`composer-auth.sh` seems to hang at "Verifying credentials…"** — after writing the keys it
 checks them against `repo.magento.com`. On a slow/blocked network that request now times out

@@ -271,7 +271,15 @@ say "╔════════════════════════
 if [[ "$problems" -eq 0 && "$EGRESS_OK" -eq 1 ]]; then
     say "${GREEN}║  Container egress is HEALTHY ✓                                 ║${NC}"
     say "╚════════════════════════════════════════════════════════════════╝"
-    [[ "$warnings" -gt 0 ]] && say "" && say "${YELLOW}${warnings} cosmetic warning(s) above — not affecting connectivity.${NC}"
+    if [[ "$skipped_root" -eq 1 ]]; then
+        say ""
+        say "${YELLOW}The iptables checks were skipped (no root), but egress works, so"
+        say "Docker's rules are demonstrably fine. Nothing to do.${NC}"
+    fi
+    if [[ "$warnings" -gt $skipped_root ]]; then
+        say ""
+        say "${YELLOW}Warning(s) above are hygiene only — they are not affecting connectivity.${NC}"
+    fi
     exit 0
 fi
 say "${RED}║  Container egress is BROKEN ✗                                  ║${NC}"

@@ -171,7 +171,10 @@ Also add the private-repo keys (vnecoms / mageplaza / magecomp) — the store wo
 `composer install` without them. They go into `scripts/.composer-auth.json` (gitignored).
 
 **✓ Check:** `make composer-validate` reports the credentials are valid (needs the stack
-from step 4 running — that's why keys come after start-up).
+from step 4 running — that's why keys come after start-up). It answers in about a second.
+
+If it instead reports *"a NETWORK fault, not your keys"* after ~10s, your keys are fine and
+the container has no internet access — run `sudo make net-check`.
 
 ---
 
@@ -269,6 +272,9 @@ OpenSearch 2.x were dropped). Why two versions and how the code is upgraded in p
 | env.php | `bash scripts/gen-env-php.sh` |
 | DB | `bash scripts/restore-db.sh <dump>` + PHASE_3_PLAN §3B |
 | Finish | `di:compile` → `setup:upgrade` → reindex → flush |
+
+Something **hangs** instead of erroring (composer, any download)? That is container
+networking, not the tool — run `sudo make net-check` before debugging anything else.
 
 Already set up? Daily commands: [docs/QUICK_START.md](docs/QUICK_START.md).
 
